@@ -23,7 +23,7 @@ public class TestHistory
 	private Integer projectID;//项目ID
 	private String requestInfo;//请求信息
 	private String resultInfo;//返回结果
-	private Timestamp testTime;//测试时间
+	private String testTime;//测试时间
 
 	public Integer getTestID()
 	{
@@ -75,12 +75,12 @@ public class TestHistory
 		this.resultInfo = resultInfo;
 	}
 
-	public Timestamp getTestTime()
+	public String getTestTime()
 	{
 		return testTime;
 	}
 
-	public void setTestTime(Timestamp testTime)
+	public void setTestTime(String testTime)
 	{
 		this.testTime = testTime;
 	}

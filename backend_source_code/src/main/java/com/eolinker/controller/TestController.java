@@ -1,28 +1,26 @@
 package com.eolinker.controller;
 
-import java.sql.Timestamp;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import javax.annotation.Resource;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpSession;
-
-import org.springframework.stereotype.Controller;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.ResponseBody;
+import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import com.eolinker.pojo.Partner;
+import com.eolinker.pojo.TestRequestParam;
 import com.eolinker.service.ApiService;
 import com.eolinker.service.ProjectService;
 import com.eolinker.service.TestHistoryService;
 import com.eolinker.util.Proxy;
+import org.apache.logging.log4j.util.Strings;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
+
+import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 /**
  * 接口测试控制器
  * @name eolinker ams open source，eolinker开源版本
@@ -38,149 +36,191 @@ import com.eolinker.util.Proxy;
  * 使用教程以及帮助：http://help.eolinker.com/ 商务合作邮箱：market@eolinker.com
  * 用户讨论QQ群：707530721
  */
-@Controller
+@RestController
 @RequestMapping("/Test")
-public class TestController
-{
-	@Resource
+public class TestController {
+    private static final int HTTP = 0;
+    private static final int HTTPS = 1;
+
+    @Resource
 	private TestHistoryService testHistoryService;
 	@Resource
 	private ProjectService projectService;
 	@Resource
 	private ApiService apiService;
 
-	/**
-	 * get请求测试
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
-	 */
-	@ResponseBody
-	@RequestMapping(value = "/get", method = RequestMethod.POST)
-	public Map<String, Object> get(HttpServletRequest request, int apiProtocol, String URL, String headers,
-			String params, Integer apiID, Integer projectID, int requestType)
-	{
-		Map<String, Object> map = new HashMap<String, Object>();
-		if (URL == null || URL.equals("") || URL.length() < 0)
-		{
-			map.put("statusCode", "210001");
-		}
-		else if (projectID == null || projectID < 1)
-		{
-			map.put("statusCode", "210002");
-		}
-		else if (apiID == null || apiID < 1)
-		{
-			map.put("statusCode", "210003");
-		}
-		else
-		{
-			String method = "GET";
-			String URI = URL;
-			Map<String, Object> headerData = JSONObject.parseObject(headers);
-			List<Map<String, String>> headerList = new ArrayList<Map<String, String>>();
-			if (headerData != null && !headerData.isEmpty())
-			{
-				for (String key : headerData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("name", key);
-					data.put("value", (String) headerData.get(key));
-					headerList.add(data);
-				}
-			}
-			Map<String, Object> paramData = JSONObject.parseObject(params);
-			List<Map<String, String>> paramList = new ArrayList<Map<String, String>>();
-			if (paramData != null && !paramData.isEmpty())
-			{
-				if (URL.contains("?"))
-				{
-					URL = URL + "&";
-				}
-				else
-				{
-					URL = URL + "?";
-				}
-				for (String key : paramData.keySet())
-				{
-					URL += key + "=" + (String) paramData.get(key) + "&";
-					Map<String, String> data = new HashMap<>();
-					data.put("key", key);
-					data.put("value", (String) paramData.get(key));
-					paramList.add(data);
-				}
-				URL = URL.substring(0, URL.length() - 1);
-			}
-			String completeURL = "";
-			if (apiProtocol == 0)
-			{
-				completeURL = "http://" + URL;
-			}
-			else
-			{
-				completeURL = "https://" + URL;
-			}
-			if (completeURL == null || completeURL.equals("") || completeURL.length() <= 0)
-			{
-				map.put("statusCode", "210001");
-				return map;
-			}
-			Proxy proxy = new Proxy();
-			Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
-			if (result != null && !result.isEmpty())
-			{
-				Map<String, Object> requestInfo = new HashMap<String, Object>();
-				requestInfo.put("apiProtocol", apiProtocol);
-				requestInfo.put("method", method);
-				requestInfo.put("URL", URI);
-				requestInfo.put("headers", headerList);
-				requestInfo.put("requestType", 0);
-				requestInfo.put("params", paramList);
-				Map<String, Object> resultInfo = new HashMap<String, Object>();
-				resultInfo.put("headers", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("headers"));
-				resultInfo.put("body", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("body"));
-				resultInfo.put("httpCode", result.get("testHttpCode"));
-				resultInfo.put("testDeny", result.get("testDeny"));
-				SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-				Date date = null;
-				try
-				{
-					date = dateFormat.parse(result.get("testTime").toString());
-				}
-				catch (ParseException e)
-				{
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-				Timestamp testTime = new Timestamp(date.getTime());
-				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
-						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
-				if (testID != null)
-				{
-					map.put("statusCode", "000000");
-					map.put("testHttpCode", result.get("testHttpCode"));
-					map.put("testDeny", result.get("testDeny"));
-					map.put("testResult", result.get("testResult"));
-					map.put("testID", testID);
-				}
-			}
+    @RequestMapping("/send")
+    public Map<String, Object> send(HttpServletRequest request, int apiProtocol, String URL, String headers,
+                                    String params, Integer apiID, Integer projectID, int requestType) {
+        switch (request.getMethod()) {
+            case "GET":
+                return get(apiProtocol, URL, headers, params, apiID, projectID, requestType);
+            case "POST":
+                return post(apiProtocol, URL, headers, params, apiID, projectID, requestType);
+            case "DELETE":
+                return delete(apiProtocol, URL, headers, params, apiID, projectID, requestType);
+            case "PUT":
+                return put(apiProtocol, URL, headers, params, apiID, projectID, requestType);
+            case "HEAD":
+                return head(apiProtocol, URL, headers, params, apiID, projectID, requestType);
+            case "PATCH":
+                return patch(apiProtocol, URL, headers, params, apiID, projectID, requestType);
+            case "OPTIONS":
+                return options(apiProtocol, URL, headers, params, apiID, projectID, requestType);
+        }
+        return null;
+    }
 
-		}
-		return map;
+    /**
+     * 参数字符串转为 List<Map<String, String>> 类型
+     * @param params
+     * @return
+     */
+    private List<Map<String, String>> paramsToListMap(String params) {
+        JSONArray array = JSONArray.parseArray(params);
+        List<Map<String, String>> result = new ArrayList<Map<String, String>>();
+        for (int i = 0; i < array.size(); i++) {
+            Map<String, String> map = JSONObject.parseObject(array.getJSONObject(i).toJSONString(), Map.class);
+            result.add(map);
+        }
+        return result;
+    }
+
+    /**
+     * 请求参数字符串转为 Map<String, String> 类型
+     * @param params
+     * @return
+     */
+    private Map<String, String> paramsToMap(String params) {
+        Map<String, String> result = new HashMap<>();
+        JSONArray array = JSONArray.parseArray(params);
+        for (int i = 0; i < array.size(); i++) {
+            JSONObject jsonObject = array.getJSONObject(i);
+            String key = jsonObject.getString("key");
+            String value = jsonObject.getString("value");
+            result.put(key, value);
+        }
+        return result;
+    }
+
+    //路径参数替换
+
+    /**
+     * 替换 url 中的路径参数
+     * @param url
+     * @param params
+     * @return
+     */
+    private String replacePathParams(String url, Map<String, String> params) {
+        String reg = "\\{(.*?)\\}"; //定义获取路径参数匹配正则
+        Pattern pattern = Pattern.compile(reg);
+        Matcher matcher = pattern.matcher(url);
+        while (matcher.find()) {
+            String paramName = matcher.group(1);
+            String paramValue = params.getOrDefault(paramName, null);
+            if (null != paramValue) {
+                url = url.replace("{" + paramName + "}", paramValue);
+            }
+        }
+        return url;
+    }
+
+    /**
+     * url地址增加请求协议头
+     * @param apiProtocol
+     * @param url
+     * @return
+     */
+    private String addProtocolHeader(int apiProtocol, String url) {
+        url = (apiProtocol == HTTP ? "http://" : "https://") + url;
+        return url;
+    }
+
+    /**
+     * 记录测试结果
+     * @param result
+     * @param testParam
+     * @return
+     */
+    private Integer addTestRecord(Map<String, Object> result, TestRequestParam testParam) {
+        if (null == result || result.isEmpty()) {
+            return null;
+        }
+        /*请求信息*/
+        Map<String, Object> requestInfo = new HashMap<String, Object>();
+        requestInfo.put("apiProtocol", testParam.getApiProtocol());
+        requestInfo.put("method", testParam.getMethod());
+        requestInfo.put("URL", testParam.getUrl());
+        requestInfo.put("headers", testParam.getHeaderList());
+        requestInfo.put("requestType", testParam.getRequestType());
+        requestInfo.put("params", testParam.getParamList());
+        /*响应信息*/
+        Map<String, Object> responseInfo = new HashMap();
+        responseInfo.put("headers", result.get("headers"));
+        responseInfo.put("body", result.get("body"));
+        responseInfo.put("httpCode", result.get("testHttpCode"));
+        responseInfo.put("testDeny", result.get("testDeny"));
+
+        // 增加测试记录
+        String testTime = result.get("testTime").toString();
+        Integer testId = testHistoryService.addTestHistory(testParam.getProjectId(), testParam.getApiId(),
+                JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(responseInfo).toString(), testTime);
+
+        return testId;
+    }
+
+
+    /**
+	 * get请求测试
+     *
+	 */
+	@RequestMapping(value = "/get", method = RequestMethod.POST)
+    public Map<String, Object> get(int apiProtocol, String URL, String headers, String params, Integer apiID, Integer projectID, int requestType) {
+        Map<String, Object> resultMap = new HashMap();    // 存储返回结果集
+        if (Strings.isBlank(URL)) {
+            resultMap.put("statusCode", "210001");
+        }
+        if (projectID == null || projectID < 1) {
+            resultMap.put("statusCode", "210002");
+        }
+        if (apiID == null || apiID < 1) {
+            resultMap.put("statusCode", "210003");
+        }
+
+        URL = replacePathParams(URL, paramsToMap(params)); //替换路径参数
+        List<Map<String, String>> headerList = paramsToListMap(headers);   // headers 字符串转 List<Map>
+        List<Map<String, String>> paramList = paramsToListMap(params);     // params 参数字符串转 List<Map>
+        /* get 请求参数处理*/
+        for (Map<String, String> param : paramList) {
+            URL += URL.contains("?") ? "&" : "?";
+            URL += param.getOrDefault("key", null) + "=" + param.getOrDefault("value", null);
+        }
+        String completeURL = addProtocolHeader(apiProtocol, URL); //增加协议头
+        String method = "GET";
+        Proxy proxy = new Proxy();
+        Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);//发送测试请求
+
+        TestRequestParam testRequestParam = new TestRequestParam(URL, apiID, projectID, apiProtocol, method, requestType, headerList, paramList);
+        Integer testId = addTestRecord(result, testRequestParam);//增加测试记录
+
+        if (null != testId) {
+            resultMap.put("testID", testId);
+            resultMap.put("statusCode", "000000");
+            resultMap.put("testDeny", result.get("testDeny"));
+            resultMap.put("testHttpCode", result.get("testHttpCode"));
+            resultMap.put("testResult", result.get("testResult"));
+        }
+        return resultMap;
 	}
 	
 	/**
-	 * get请求测试
-	 * 
-	 * @param request
-	 * @param project
+     * delete 请求测试
+     *
 	 * @return
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/delete", method = RequestMethod.POST)
-	public Map<String, Object> delete(HttpServletRequest request, int apiProtocol, String URL, String headers,
-			String params, Integer apiID, Integer projectID, int requestType)
+    public Map<String, Object> delete(int apiProtocol, String URL, String headers,
+                                      String params, Integer apiID, Integer projectID, int requestType)
 	{
 		Map<String, Object> map = new HashMap<String, Object>();
 		if (URL == null || URL.equals("") || URL.length() < 0)
@@ -274,7 +314,8 @@ public class TestController
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				Timestamp testTime = new Timestamp(date.getTime());
+//				Timestamp testTime = new Timestamp(date.getTime());
+                String testTime = result.get("testTime").toString();
 				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
 						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
 				if (testID != null)
@@ -293,15 +334,11 @@ public class TestController
 
 	/**
 	 * post请求测试
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
+     *
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/post", method = RequestMethod.POST)
-	public Map<String, Object> post(HttpServletRequest request, int apiProtocol, String URL, String headers,
-			String params, Integer apiID, Integer projectID, int requestType)
+    public Map<String, Object> post(int apiProtocol, String URL, String headers,
+                                    String params, Integer apiID, Integer projectID, int requestType)
 	{
 		Map<String, Object> map = new HashMap<String, Object>();
 		if (URL == null || URL.equals("") || URL.length() < 0)
@@ -385,7 +422,8 @@ public class TestController
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				Timestamp testTime = new Timestamp(date.getTime());
+//				Timestamp testTime = new Timestamp(date.getTime());
+                String testTime = result.get("testTime").toString();
 				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
 						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
 				if (testID != null)
@@ -405,15 +443,11 @@ public class TestController
 	
 	/**
 	 * head请求测试
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
+     *
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/head", method = RequestMethod.POST)
-	public Map<String, Object> head(HttpServletRequest request, int apiProtocol, String URL, String headers,
-			String params, Integer apiID, Integer projectID, int requestType)
+    public Map<String, Object> head(int apiProtocol, String URL, String headers,
+                                    String params, Integer apiID, Integer projectID, int requestType)
 	{
 		Map<String, Object> map = new HashMap<String, Object>();
 		if (URL == null || URL.equals("") || URL.length() < 0)
@@ -497,7 +531,8 @@ public class TestController
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				Timestamp testTime = new Timestamp(date.getTime());
+//				Timestamp testTime = new Timestamp(date.getTime());
+                String testTime = result.get("testTime").toString();
 				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
 						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
 				if (testID != null)
@@ -516,15 +551,11 @@ public class TestController
 	
 	/**
 	 * patch请求测试
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
+     *
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/patch", method = RequestMethod.POST)
-	public Map<String, Object> patch(HttpServletRequest request, int apiProtocol, String URL, String headers,
-			String params, Integer apiID, Integer projectID, int requestType)
+    public Map<String, Object> patch(int apiProtocol, String URL, String headers,
+                                     String params, Integer apiID, Integer projectID, int requestType)
 	{
 		Map<String, Object> map = new HashMap<String, Object>();
 		if (URL == null || URL.equals("") || URL.length() < 0)
@@ -608,7 +639,8 @@ public class TestController
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				Timestamp testTime = new Timestamp(date.getTime());
+//				Timestamp testTime = new Timestamp(date.getTime());
+                String testTime = result.get("testTime").toString();
 				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
 						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
 				if (testID != null)
@@ -627,15 +659,10 @@ public class TestController
 	
 	/**
 	 * put请求测试
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/put", method = RequestMethod.POST)
-	public Map<String, Object> put(HttpServletRequest request, int apiProtocol, String URL, String headers,
-			String params, Integer apiID, Integer projectID, int requestType)
+    public Map<String, Object> put(int apiProtocol, String URL, String headers,
+                                   String params, Integer apiID, Integer projectID, int requestType)
 	{
 		Map<String, Object> map = new HashMap<String, Object>();
 		if (URL == null || URL.equals("") || URL.length() < 0)
@@ -719,7 +746,8 @@ public class TestController
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				Timestamp testTime = new Timestamp(date.getTime());
+//				Timestamp testTime = new Timestamp(date.getTime());
+                String testTime = result.get("testTime").toString();
 				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
 						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
 				if (testID != null)
@@ -738,15 +766,11 @@ public class TestController
 	
 	/**
 	 * options请求测试
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
+     *
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/options", method = RequestMethod.POST)
-	public Map<String, Object> options(HttpServletRequest request, int apiProtocol, String URL, String headers,
-			String params, Integer apiID, Integer projectID, int requestType)
+    public Map<String, Object> options(int apiProtocol, String URL, String headers,
+                                       String params, Integer apiID, Integer projectID, int requestType)
 	{
 		Map<String, Object> map = new HashMap<String, Object>();
 		if (URL == null || URL.equals("") || URL.length() < 0)
@@ -830,7 +854,8 @@ public class TestController
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				Timestamp testTime = new Timestamp(date.getTime());
+//				Timestamp testTime = new Timestamp(date.getTime());
+                String testTime = result.get("testTime").toString();
 				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
 						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
 				if (testID != null)
@@ -849,12 +874,8 @@ public class TestController
 
 	/**
 	 * 删除测试记录
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
+     *
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/deleteTestHistory", method = RequestMethod.POST)
 	public Map<String, Object> deleteTestHistory(HttpServletRequest request, Integer testID, Integer projectID)
 	{
@@ -883,12 +904,8 @@ public class TestController
 
 	/**
 	 * 清空测试记录
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
+     *
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/deleteAllTestHistory", method = RequestMethod.POST)
 	public Map<String, Object> deleteAllTestHistory(HttpServletRequest request, Integer apiID, Integer projectID)
 	{
@@ -917,12 +934,8 @@ public class TestController
 
 	/**
 	 * 添加测试记录
-	 * 
-	 * @param request
-	 * @param project
-	 * @return
+     *
 	 */
-	@ResponseBody
 	@RequestMapping(value = "/addTestHistory", method = RequestMethod.POST)
 	public Map<String, Object> addTestHistory(HttpServletRequest request, Integer apiID, String requestInfo,
 			String resultInfo)
@@ -939,7 +952,8 @@ public class TestController
 		else
 		{
 			Date date = new Date();
-			Timestamp testTime = new Timestamp(date.getTime());
+//			Timestamp testTime = new Timestamp(date.getTime());
+            String testTime = "";
 			Integer result = testHistoryService.addTestHistory(projectID, apiID, requestInfo, resultInfo, testTime);
 			if (result != null)
 			{

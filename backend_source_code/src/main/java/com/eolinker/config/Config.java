@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  * 用户讨论QQ群：707530721
  */
 @Component
-@PropertySource("file:${user.dir}/config/setting.properties")
+@PropertySource("file:${user.dir}/backend_source_code/config/setting.properties")
 @ConfigurationProperties()
 public class Config
 {

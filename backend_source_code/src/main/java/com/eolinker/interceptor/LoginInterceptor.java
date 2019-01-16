@@ -54,11 +54,12 @@ public class LoginInterceptor extends HandlerInterceptorAdapter
 //					}
 //				}
 //			}
-			Map<String, Object> map = new HashMap<String, Object>();
+/*			Map<String, Object> map = new HashMap<String, Object>();
 			map.put("statusCode", "100001");
 			PrintWriter out = response.getWriter();
 			out.println(JSON.toJSONString(map));
-			return false;
+			return false;*/
+			session.setAttribute("userID",1);
 		}
 		return true;
 	}

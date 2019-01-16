@@ -38,7 +38,7 @@ public class TestHistoryServiceImpl implements TestHistoryService
 	 */
 	@Override
 	public Integer addTestHistory(Integer projectID, Integer apiID, String requestInfo, String resultInfo,
-			Timestamp testTime)
+			String testTime)
 	{
 		// TODO Auto-generated method stub
 		TestHistory testHistory = new TestHistory();

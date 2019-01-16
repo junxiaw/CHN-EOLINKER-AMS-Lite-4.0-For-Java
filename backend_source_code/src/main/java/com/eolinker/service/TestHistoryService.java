@@ -21,7 +21,7 @@ public interface TestHistoryService
 
 	//添加测试历史
 	public Integer addTestHistory(Integer projectID, Integer apiID, String requestInfo, String resultInfo,
-			Timestamp testTime);
+			String testTime);
 
 	//删除测试历史
 	public boolean deleteTestHistory(Integer projectID, Integer userID, Integer testID);
