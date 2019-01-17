@@ -7,6 +7,7 @@ import com.eolinker.pojo.TestRequestParam;
 import com.eolinker.service.ApiService;
 import com.eolinker.service.ProjectService;
 import com.eolinker.service.TestHistoryService;
+import com.eolinker.util.DateUtil;
 import com.eolinker.util.Proxy;
 import org.apache.logging.log4j.util.Strings;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -132,7 +133,9 @@ public class TestController {
      * @return
      */
     private String addProtocolHeader(int apiProtocol, String url) {
-        url = (apiProtocol == HTTP ? "http://" : "https://") + url;
+        if(! url.startsWith("http")){
+            url = (apiProtocol == HTTP ? "http://" : "https://") + url;
+        }
         return url;
     }
 
@@ -220,115 +223,40 @@ public class TestController {
 	 */
 	@RequestMapping(value = "/delete", method = RequestMethod.POST)
     public Map<String, Object> delete(int apiProtocol, String URL, String headers,
-                                      String params, Integer apiID, Integer projectID, int requestType)
-	{
+                                      String params, Integer apiID, Integer projectID, int requestType) {
 		Map<String, Object> map = new HashMap<String, Object>();
-		if (URL == null || URL.equals("") || URL.length() < 0)
-		{
-			map.put("statusCode", "210001");
-		}
-		else if (projectID == null || projectID < 1)
-		{
-			map.put("statusCode", "210002");
-		}
-		else if (apiID == null || apiID < 1)
-		{
-			map.put("statusCode", "210003");
-		}
-		else
-		{
-			String method = "DELETE";
-			String URI = URL;
-			Map<String, Object> headerData = JSONObject.parseObject(headers);
-			List<Map<String, String>> headerList = new ArrayList<Map<String, String>>();
-			if (headerData != null && !headerData.isEmpty())
-			{
-				for (String key : headerData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("name", key);
-					data.put("value", (String) headerData.get(key));
-					headerList.add(data);
-				}
-			}
-			Map<String, Object> paramData = JSONObject.parseObject(params);
-			List<Map<String, String>> paramList = new ArrayList<Map<String, String>>();
-			if (paramData != null && !paramData.isEmpty())
-			{
-				if (URL.contains("?"))
-				{
-					URL = URL + "&";
-				}
-				else
-				{
-					URL = URL + "?";
-				}
-				for (String key : paramData.keySet())
-				{
-					URL += key + "=" + (String) paramData.get(key) + "&";
-					Map<String, String> data = new HashMap<>();
-					data.put("key", key);
-					data.put("value", (String) paramData.get(key));
-					paramList.add(data);
-				}
-				URL = URL.substring(0, URL.length() - 1);
-			}
-			String completeURL = "";
-			if (apiProtocol == 0)
-			{
-				completeURL = "http://" + URL;
-			}
-			else
-			{
-				completeURL = "https://" + URL;
-			}
-			if (completeURL == null || completeURL.equals("") || completeURL.length() <= 0)
-			{
-				map.put("statusCode", "210001");
-				return map;
-			}
-			Proxy proxy = new Proxy();
-			Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
-			if (result != null && !result.isEmpty())
-			{
-				Map<String, Object> requestInfo = new HashMap<String, Object>();
-				requestInfo.put("apiProtocol", apiProtocol);
-				requestInfo.put("method", method);
-				requestInfo.put("URL", URI);
-				requestInfo.put("headers", headerList);
-				requestInfo.put("requestType", 0);
-				requestInfo.put("params", paramList);
-				Map<String, Object> resultInfo = new HashMap<String, Object>();
-				resultInfo.put("headers", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("headers"));
-				resultInfo.put("body", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("body"));
-				resultInfo.put("httpCode", result.get("testHttpCode"));
-				resultInfo.put("testDeny", result.get("testDeny"));
-				SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-				Date date = null;
-				try
-				{
-					date = dateFormat.parse(result.get("testTime").toString());
-				}
-				catch (ParseException e)
-				{
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-//				Timestamp testTime = new Timestamp(date.getTime());
-                String testTime = result.get("testTime").toString();
-				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
-						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
-				if (testID != null)
-				{
-					map.put("statusCode", "000000");
-					map.put("testHttpCode", result.get("testHttpCode"));
-					map.put("testDeny", result.get("testDeny"));
-					map.put("testResult", result.get("testResult"));
-					map.put("testID", testID);
-				}
-			}
+        if (Strings.isBlank(URL)) {
+            map.put("statusCode", "210001");
+        }
+        if (projectID == null || projectID < 1) {
+            map.put("statusCode", "210002");
+        }
+        if (apiID == null || apiID < 1) {
+            map.put("statusCode", "210003");
+        }
+        URL = replacePathParams(URL, paramsToMap(params)); //替换路径参数
+        List<Map<String, String>> headerList = paramsToListMap(headers);   // headers 字符串转 List<Map>
+        List<Map<String, String>> paramList = paramsToListMap(params);     // params 参数字符串转 List<Map>
+        /* get 请求参数处理*/
+        for (Map<String, String> param : paramList) {
+            URL += URL.contains("?") ? "&" : "?";
+            URL += param.getOrDefault("key", null) + "=" + param.getOrDefault("value", null);
+        }
+        String completeURL = addProtocolHeader(apiProtocol, URL); //增加协议头
+        String method = "DELETE";
 
-		}
+        Proxy proxy = new Proxy();
+        Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
+
+        TestRequestParam testRequestParam = new TestRequestParam(URL, apiID, projectID, apiProtocol, method, requestType, headerList, paramList);
+        Integer testId = addTestRecord(result, testRequestParam);//增加测试记录
+        if (testId != null) {
+            map.put("statusCode", "000000");
+            map.put("testHttpCode", result.get("testHttpCode"));
+            map.put("testDeny", result.get("testDeny"));
+            map.put("testResult", result.get("testResult"));
+            map.put("testID", testId);
+        }
 		return map;
 	}
 
@@ -341,102 +269,32 @@ public class TestController {
                                     String params, Integer apiID, Integer projectID, int requestType)
 	{
 		Map<String, Object> map = new HashMap<String, Object>();
-		if (URL == null || URL.equals("") || URL.length() < 0)
-		{
-			map.put("statusCode", "210001");
-		}
-		else if (projectID == null || projectID < 1)
-		{
-			map.put("statusCode", "210002");
-		}
-		else if (apiID == null || apiID < 1)
-		{
-			map.put("statusCode", "210003");
-		}
-		else
-		{
-			String method = "POST";
-			String URI = URL;
-			Map<String, Object> headerData = JSONObject.parseObject(headers);
-			List<Map<String, String>> headerList = new ArrayList<Map<String, String>>();
-			if (headerData != null && !headerData.isEmpty())
-			{
-				for (String key : headerData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("name", key);
-					data.put("value", (String) headerData.get(key));
-					headerList.add(data);
-				}
-			}
-			Map<String, Object> paramData = JSONObject.parseObject(params);
-			List<Map<String, String>> paramList = new ArrayList<Map<String, String>>();
-			if (paramData != null && !paramData.isEmpty())
-			{
-				for (String key : paramData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("key", key);
-					data.put("value", (String) paramData.get(key));
-					paramList.add(data);
-				}
-			}
-			String completeURL = "";
-			if (apiProtocol == 0)
-			{
-				completeURL = "http://" + URL;
-			}
-			else
-			{
-				completeURL = "https://" + URL;
-			}
-			if (completeURL == null || completeURL.equals("") || completeURL.length() <= 0)
-			{
-				map.put("statusCode", "210001");
-				return map;
-			}
-			Proxy proxy = new Proxy();
-			Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
-			if (result != null && !result.isEmpty())
-			{
-				Map<String, Object> requestInfo = new HashMap<String, Object>();
-				requestInfo.put("apiProtocol", apiProtocol);
-				requestInfo.put("method", method);
-				requestInfo.put("URL", URI);
-				requestInfo.put("headers", headerList);
-				requestInfo.put("requestType", requestType);
-				requestInfo.put("params", paramList);
-				Map<String, Object> resultInfo = new HashMap<String, Object>();
-				resultInfo.put("headers", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("headers"));
-				resultInfo.put("body", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("body"));
-				resultInfo.put("httpCode", result.get("testHttpCode"));
-				resultInfo.put("testDeny", result.get("testDeny"));
-				SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-				Date date = null;
-				try
-				{
-					date = dateFormat.parse(result.get("testTime").toString());
-				}
-				catch (ParseException e)
-				{
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-//				Timestamp testTime = new Timestamp(date.getTime());
-                String testTime = result.get("testTime").toString();
-				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
-						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
-				if (testID != null)
-				{
-					map.put("statusCode", "000000");
-					map.put("testHttpCode", result.get("testHttpCode"));
-					map.put("testDeny", result.get("testDeny"));
-					map.put("testResult", result.get("testResult"));
-					map.put("testID", testID);
-				}
-			}
+        if (Strings.isBlank(URL)) {
+            map.put("statusCode", "210001");
+        }
+        if (projectID == null || projectID < 1) {
+            map.put("statusCode", "210002");
+        }
+        if (apiID == null || apiID < 1) {
+            map.put("statusCode", "210003");
+        }
+        URL = replacePathParams(URL, paramsToMap(params)); //替换路径参数
+        List<Map<String, String>> headerList = paramsToListMap(headers);   // headers 字符串转 List<Map>
+        List<Map<String, String>> paramList = paramsToListMap(params);     // params 参数字符串转 List<Map>
 
-		}
+        String completeURL = addProtocolHeader(apiProtocol, URL); //增加协议头
+        String method = "POST";
+        Proxy proxy = new Proxy();
+        Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
+        TestRequestParam testRequestParam = new TestRequestParam(URL, apiID, projectID, apiProtocol, method, requestType, headerList, paramList);
+        Integer testId = addTestRecord(result, testRequestParam);//增加测试记录
+        if (testId != null) {
+            map.put("statusCode", "000000");
+            map.put("testHttpCode", result.get("testHttpCode"));
+            map.put("testDeny", result.get("testDeny"));
+            map.put("testResult", result.get("testResult"));
+            map.put("testID", testId);
+        }
 		return map;
 	}
 	
@@ -447,105 +305,35 @@ public class TestController {
 	 */
 	@RequestMapping(value = "/head", method = RequestMethod.POST)
     public Map<String, Object> head(int apiProtocol, String URL, String headers,
-                                    String params, Integer apiID, Integer projectID, int requestType)
-	{
+                                    String params, Integer apiID, Integer projectID, int requestType) {
 		Map<String, Object> map = new HashMap<String, Object>();
-		if (URL == null || URL.equals("") || URL.length() < 0)
-		{
-			map.put("statusCode", "210001");
-		}
-		else if (projectID == null || projectID < 1)
-		{
-			map.put("statusCode", "210002");
-		}
-		else if (apiID == null || apiID < 1)
-		{
-			map.put("statusCode", "210003");
-		}
-		else
-		{
-			String method = "HEAD";
-			String URI = URL;
-			Map<String, Object> headerData = JSONObject.parseObject(headers);
-			List<Map<String, String>> headerList = new ArrayList<Map<String, String>>();
-			if (headerData != null && !headerData.isEmpty())
-			{
-				for (String key : headerData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("name", key);
-					data.put("value", (String) headerData.get(key));
-					headerList.add(data);
-				}
-			}
-			Map<String, Object> paramData = JSONObject.parseObject(params);
-			List<Map<String, String>> paramList = new ArrayList<Map<String, String>>();
-			if (paramData != null && !paramData.isEmpty())
-			{
-				for (String key : paramData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("key", key);
-					data.put("value", (String) paramData.get(key));
-					paramList.add(data);
-				}
-			}
-			String completeURL = "";
-			if (apiProtocol == 0)
-			{
-				completeURL = "http://" + URL;
-			}
-			else
-			{
-				completeURL = "https://" + URL;
-			}
-			if (completeURL == null || completeURL.equals("") || completeURL.length() <= 0)
-			{
-				map.put("statusCode", "210001");
-				return map;
-			}
-			Proxy proxy = new Proxy();
-			Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
-			if (result != null && !result.isEmpty())
-			{
-				Map<String, Object> requestInfo = new HashMap<String, Object>();
-				requestInfo.put("apiProtocol", apiProtocol);
-				requestInfo.put("method", method);
-				requestInfo.put("URL", URI);
-				requestInfo.put("headers", headerList);
-				requestInfo.put("requestType", requestType);
-				requestInfo.put("params", paramList);
-				Map<String, Object> resultInfo = new HashMap<String, Object>();
-				resultInfo.put("headers", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("headers"));
-				resultInfo.put("body", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("body"));
-				resultInfo.put("httpCode", result.get("testHttpCode"));
-				resultInfo.put("testDeny", result.get("testDeny"));
-				SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-				Date date = null;
-				try
-				{
-					date = dateFormat.parse(result.get("testTime").toString());
-				}
-				catch (ParseException e)
-				{
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-//				Timestamp testTime = new Timestamp(date.getTime());
-                String testTime = result.get("testTime").toString();
-				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
-						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
-				if (testID != null)
-				{
-					map.put("statusCode", "000000");
-					map.put("testHttpCode", result.get("testHttpCode"));
-					map.put("testDeny", result.get("testDeny"));
-					map.put("testResult", result.get("testResult"));
-					map.put("testID", testID);
-				}
-			}
+        if (Strings.isBlank(URL)) {
+            map.put("statusCode", "210001");
+        }
+        if (projectID == null || projectID < 1) {
+            map.put("statusCode", "210002");
+        }
+        if (apiID == null || apiID < 1) {
+            map.put("statusCode", "210003");
+        }
+        URL = replacePathParams(URL, paramsToMap(params)); //替换路径参数
+        List<Map<String, String>> headerList = paramsToListMap(headers);   // headers 字符串转 List<Map>
+        List<Map<String, String>> paramList = paramsToListMap(params);     // params 参数字符串转 List<Map>
+        String completeURL = addProtocolHeader(apiProtocol, URL); //增加协议头
 
-		}
+        String method = "HEAD";
+        Proxy proxy = new Proxy();
+        Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
+
+        TestRequestParam testRequestParam = new TestRequestParam(URL, apiID, projectID, apiProtocol, method, requestType, headerList, paramList);
+        Integer testId = addTestRecord(result, testRequestParam);//增加测试记录
+        if (testId != null) {
+            map.put("statusCode", "000000");
+            map.put("testHttpCode", result.get("testHttpCode"));
+            map.put("testDeny", result.get("testDeny"));
+            map.put("testResult", result.get("testResult"));
+            map.put("testID", testId);
+        }
 		return map;
 	}
 	
@@ -555,105 +343,36 @@ public class TestController {
 	 */
 	@RequestMapping(value = "/patch", method = RequestMethod.POST)
     public Map<String, Object> patch(int apiProtocol, String URL, String headers,
-                                     String params, Integer apiID, Integer projectID, int requestType)
-	{
+                                     String params, Integer apiID, Integer projectID, int requestType) {
 		Map<String, Object> map = new HashMap<String, Object>();
-		if (URL == null || URL.equals("") || URL.length() < 0)
-		{
-			map.put("statusCode", "210001");
-		}
-		else if (projectID == null || projectID < 1)
-		{
-			map.put("statusCode", "210002");
-		}
-		else if (apiID == null || apiID < 1)
-		{
-			map.put("statusCode", "210003");
-		}
-		else
-		{
-			String method = "PATCH";
-			String URI = URL;
-			Map<String, Object> headerData = JSONObject.parseObject(headers);
-			List<Map<String, String>> headerList = new ArrayList<Map<String, String>>();
-			if (headerData != null && !headerData.isEmpty())
-			{
-				for (String key : headerData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("name", key);
-					data.put("value", (String) headerData.get(key));
-					headerList.add(data);
-				}
-			}
-			Map<String, Object> paramData = JSONObject.parseObject(params);
-			List<Map<String, String>> paramList = new ArrayList<Map<String, String>>();
-			if (paramData != null && !paramData.isEmpty())
-			{
-				for (String key : paramData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("key", key);
-					data.put("value", (String) paramData.get(key));
-					paramList.add(data);
-				}
-			}
-			String completeURL = "";
-			if (apiProtocol == 0)
-			{
-				completeURL = "http://" + URL;
-			}
-			else
-			{
-				completeURL = "https://" + URL;
-			}
-			if (completeURL == null || completeURL.equals("") || completeURL.length() <= 0)
-			{
-				map.put("statusCode", "210001");
-				return map;
-			}
-			Proxy proxy = new Proxy();
-			Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
-			if (result != null && !result.isEmpty())
-			{
-				Map<String, Object> requestInfo = new HashMap<String, Object>();
-				requestInfo.put("apiProtocol", apiProtocol);
-				requestInfo.put("method", method);
-				requestInfo.put("URL", URI);
-				requestInfo.put("headers", headerList);
-				requestInfo.put("requestType", requestType);
-				requestInfo.put("params", paramList);
-				Map<String, Object> resultInfo = new HashMap<String, Object>();
-				resultInfo.put("headers", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("headers"));
-				resultInfo.put("body", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("body"));
-				resultInfo.put("httpCode", result.get("testHttpCode"));
-				resultInfo.put("testDeny", result.get("testDeny"));
-				SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-				Date date = null;
-				try
-				{
-					date = dateFormat.parse(result.get("testTime").toString());
-				}
-				catch (ParseException e)
-				{
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-//				Timestamp testTime = new Timestamp(date.getTime());
-                String testTime = result.get("testTime").toString();
-				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
-						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
-				if (testID != null)
-				{
-					map.put("statusCode", "000000");
-					map.put("testHttpCode", result.get("testHttpCode"));
-					map.put("testDeny", result.get("testDeny"));
-					map.put("testResult", result.get("testResult"));
-					map.put("testID", testID);
-				}
-			}
+        if (Strings.isBlank(URL)) {
+            map.put("statusCode", "210001");
+        }
+        if (projectID == null || projectID < 1) {
+            map.put("statusCode", "210002");
+        }
+        if (apiID == null || apiID < 1) {
+            map.put("statusCode", "210003");
+        }
 
-		}
+        URL = replacePathParams(URL, paramsToMap(params)); //替换路径参数
+        List<Map<String, String>> headerList = paramsToListMap(headers);   // headers 字符串转 List<Map>
+        List<Map<String, String>> paramList = paramsToListMap(params);     // params 参数字符串转 List<Map>
+
+        String completeURL = addProtocolHeader(apiProtocol, URL); //增加协议头
+        String method = "PATCH";
+        Proxy proxy = new Proxy();
+        Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
+
+        TestRequestParam testRequestParam = new TestRequestParam(URL, apiID, projectID, apiProtocol, method, requestType, headerList, paramList);
+        Integer testId = addTestRecord(result, testRequestParam);//增加测试记录
+        if (testId != null) {
+            map.put("statusCode", "000000");
+            map.put("testHttpCode", result.get("testHttpCode"));
+            map.put("testDeny", result.get("testDeny"));
+            map.put("testResult", result.get("testResult"));
+            map.put("testID", testId);
+        }
 		return map;
 	}
 	
@@ -662,105 +381,34 @@ public class TestController {
 	 */
 	@RequestMapping(value = "/put", method = RequestMethod.POST)
     public Map<String, Object> put(int apiProtocol, String URL, String headers,
-                                   String params, Integer apiID, Integer projectID, int requestType)
-	{
+                                   String params, Integer apiID, Integer projectID, int requestType) {
 		Map<String, Object> map = new HashMap<String, Object>();
-		if (URL == null || URL.equals("") || URL.length() < 0)
-		{
-			map.put("statusCode", "210001");
-		}
-		else if (projectID == null || projectID < 1)
-		{
-			map.put("statusCode", "210002");
-		}
-		else if (apiID == null || apiID < 1)
-		{
-			map.put("statusCode", "210003");
-		}
-		else
-		{
-			String method = "PUT";
-			String URI = URL;
-			Map<String, Object> headerData = JSONObject.parseObject(headers);
-			List<Map<String, String>> headerList = new ArrayList<Map<String, String>>();
-			if (headerData != null && !headerData.isEmpty())
-			{
-				for (String key : headerData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("name", key);
-					data.put("value", (String) headerData.get(key));
-					headerList.add(data);
-				}
-			}
-			Map<String, Object> paramData = JSONObject.parseObject(params);
-			List<Map<String, String>> paramList = new ArrayList<Map<String, String>>();
-			if (paramData != null && !paramData.isEmpty())
-			{
-				for (String key : paramData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("key", key);
-					data.put("value", (String) paramData.get(key));
-					paramList.add(data);
-				}
-			}
-			String completeURL = "";
-			if (apiProtocol == 0)
-			{
-				completeURL = "http://" + URL;
-			}
-			else
-			{
-				completeURL = "https://" + URL;
-			}
-			if (completeURL == null || completeURL.equals("") || completeURL.length() <= 0)
-			{
-				map.put("statusCode", "210001");
-				return map;
-			}
-			Proxy proxy = new Proxy();
-			Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
-			if (result != null && !result.isEmpty())
-			{
-				Map<String, Object> requestInfo = new HashMap<String, Object>();
-				requestInfo.put("apiProtocol", apiProtocol);
-				requestInfo.put("method", method);
-				requestInfo.put("URL", URI);
-				requestInfo.put("headers", headerList);
-				requestInfo.put("requestType", requestType);
-				requestInfo.put("params", paramList);
-				Map<String, Object> resultInfo = new HashMap<String, Object>();
-				resultInfo.put("headers", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("headers"));
-				resultInfo.put("body", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("body"));
-				resultInfo.put("httpCode", result.get("testHttpCode"));
-				resultInfo.put("testDeny", result.get("testDeny"));
-				SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-				Date date = null;
-				try
-				{
-					date = dateFormat.parse(result.get("testTime").toString());
-				}
-				catch (ParseException e)
-				{
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-//				Timestamp testTime = new Timestamp(date.getTime());
-                String testTime = result.get("testTime").toString();
-				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
-						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
-				if (testID != null)
-				{
-					map.put("statusCode", "000000");
-					map.put("testHttpCode", result.get("testHttpCode"));
-					map.put("testDeny", result.get("testDeny"));
-					map.put("testResult", result.get("testResult"));
-					map.put("testID", testID);
-				}
-			}
+        if (Strings.isBlank(URL)) {
+            map.put("statusCode", "210001");
+        }
+        if (projectID == null || projectID < 1) {
+            map.put("statusCode", "210002");
+        }
+        if (apiID == null || apiID < 1) {
+            map.put("statusCode", "210003");
+        }
+        URL = replacePathParams(URL, paramsToMap(params)); //替换路径参数
+        List<Map<String, String>> headerList = paramsToListMap(headers);   // headers 字符串转 List<Map>
+        List<Map<String, String>> paramList = paramsToListMap(params);     // params 参数字符串转 List<Map>
 
-		}
+        String completeURL = addProtocolHeader(apiProtocol, URL); //增加协议头
+        String method = "PUT";
+        Proxy proxy = new Proxy();
+        Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
+        TestRequestParam testRequestParam = new TestRequestParam(URL, apiID, projectID, apiProtocol, method, requestType, headerList, paramList);
+        Integer testId = addTestRecord(result, testRequestParam);//增加测试记录
+        if (testId != null) {
+            map.put("statusCode", "000000");
+            map.put("testHttpCode", result.get("testHttpCode"));
+            map.put("testDeny", result.get("testDeny"));
+            map.put("testResult", result.get("testResult"));
+            map.put("testID", testId);
+        }
 		return map;
 	}
 	
@@ -770,105 +418,34 @@ public class TestController {
 	 */
 	@RequestMapping(value = "/options", method = RequestMethod.POST)
     public Map<String, Object> options(int apiProtocol, String URL, String headers,
-                                       String params, Integer apiID, Integer projectID, int requestType)
-	{
+                                       String params, Integer apiID, Integer projectID, int requestType) {
 		Map<String, Object> map = new HashMap<String, Object>();
-		if (URL == null || URL.equals("") || URL.length() < 0)
-		{
-			map.put("statusCode", "210001");
-		}
-		else if (projectID == null || projectID < 1)
-		{
-			map.put("statusCode", "210002");
-		}
-		else if (apiID == null || apiID < 1)
-		{
-			map.put("statusCode", "210003");
-		}
-		else
-		{
-			String method = "OPTIONS";
-			String URI = URL;
-			Map<String, Object> headerData = JSONObject.parseObject(headers);
-			List<Map<String, String>> headerList = new ArrayList<Map<String, String>>();
-			if (headerData != null && !headerData.isEmpty())
-			{
-				for (String key : headerData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("name", key);
-					data.put("value", (String) headerData.get(key));
-					headerList.add(data);
-				}
-			}
-			Map<String, Object> paramData = JSONObject.parseObject(params);
-			List<Map<String, String>> paramList = new ArrayList<Map<String, String>>();
-			if (paramData != null && !paramData.isEmpty())
-			{
-				for (String key : paramData.keySet())
-				{
-					Map<String, String> data = new HashMap<>();
-					data.put("key", key);
-					data.put("value", (String) paramData.get(key));
-					paramList.add(data);
-				}
-			}
-			String completeURL = "";
-			if (apiProtocol == 0)
-			{
-				completeURL = "http://" + URL;
-			}
-			else
-			{
-				completeURL = "https://" + URL;
-			}
-			if (completeURL == null || completeURL.equals("") || completeURL.length() <= 0)
-			{
-				map.put("statusCode", "210001");
-				return map;
-			}
-			Proxy proxy = new Proxy();
-			Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
-			if (result != null && !result.isEmpty())
-			{
-				Map<String, Object> requestInfo = new HashMap<String, Object>();
-				requestInfo.put("apiProtocol", apiProtocol);
-				requestInfo.put("method", method);
-				requestInfo.put("URL", URI);
-				requestInfo.put("headers", headerList);
-				requestInfo.put("requestType", requestType);
-				requestInfo.put("params", paramList);
-				Map<String, Object> resultInfo = new HashMap<String, Object>();
-				resultInfo.put("headers", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("headers"));
-				resultInfo.put("body", ((JSONObject) JSONObject.toJSON(result.get("testResult"))).get("body"));
-				resultInfo.put("httpCode", result.get("testHttpCode"));
-				resultInfo.put("testDeny", result.get("testDeny"));
-				SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-				Date date = null;
-				try
-				{
-					date = dateFormat.parse(result.get("testTime").toString());
-				}
-				catch (ParseException e)
-				{
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-//				Timestamp testTime = new Timestamp(date.getTime());
-                String testTime = result.get("testTime").toString();
-				Integer testID = testHistoryService.addTestHistory(projectID, apiID,
-						JSONObject.toJSON(requestInfo).toString(), JSONObject.toJSON(resultInfo).toString(), testTime);
-				if (testID != null)
-				{
-					map.put("statusCode", "000000");
-					map.put("testHttpCode", result.get("testHttpCode"));
-					map.put("testDeny", result.get("testDeny"));
-					map.put("testResult", result.get("testResult"));
-					map.put("testID", testID);
-				}
-			}
+        if (Strings.isBlank(URL)) {
+            map.put("statusCode", "210001");
+        }
+        if (projectID == null || projectID < 1) {
+            map.put("statusCode", "210002");
+        }
+        if (apiID == null || apiID < 1) {
+            map.put("statusCode", "210003");
+        }
+        URL = replacePathParams(URL, paramsToMap(params)); //替换路径参数
+        List<Map<String, String>> headerList = paramsToListMap(headers);   // headers 字符串转 List<Map>
+        List<Map<String, String>> paramList = paramsToListMap(params);     // params 参数字符串转 List<Map>
 
-		}
+        String completeURL = addProtocolHeader(apiProtocol, URL); //增加协议头
+        String method = "OPTIONS";
+        Proxy proxy = new Proxy();
+        Map<String, Object> result = proxy.proxyToDesURL(method, completeURL, headerList, paramList);
+        TestRequestParam testRequestParam = new TestRequestParam(URL, apiID, projectID, apiProtocol, method, requestType, headerList, paramList);
+        Integer testId = addTestRecord(result, testRequestParam);//增加测试记录
+        if (testId != null) {
+            map.put("statusCode", "000000");
+            map.put("testHttpCode", result.get("testHttpCode"));
+            map.put("testDeny", result.get("testDeny"));
+            map.put("testResult", result.get("testResult"));
+            map.put("testID", testId);
+        }
 		return map;
 	}
 
@@ -877,28 +454,17 @@ public class TestController {
      *
 	 */
 	@RequestMapping(value = "/deleteTestHistory", method = RequestMethod.POST)
-	public Map<String, Object> deleteTestHistory(HttpServletRequest request, Integer testID, Integer projectID)
-	{
+	public Map<String, Object> deleteTestHistory(HttpServletRequest request, Integer testID, Integer projectID) {
 		Map<String, Object> map = new HashMap<String, Object>();
 		HttpSession session = request.getSession(true);
 		Integer userID = (Integer) session.getAttribute("userID");
 		Partner partner = projectService.getProjectUserType(userID, projectID);
-		if (partner == null || partner.getUserType() < 0 || partner.getUserType() > 2)
-		{
+		if (partner == null || partner.getUserType() < 0 || partner.getUserType() > 2) {
 			map.put("statusCode", "100002");
 		}
-		else
-		{
-			boolean result = testHistoryService.deleteTestHistory(projectID, userID, testID);
-			if (result)
-			{
-				map.put("statusCode", "000000");
-			}
-			else
-			{
-				map.put("statusCode", "210000");
-			}
-		}
+
+		boolean result = testHistoryService.deleteTestHistory(projectID, userID, testID);
+        map.put("statusCode", result ? "000000" : "210000");
 		return map;
 	}
 
@@ -913,22 +479,12 @@ public class TestController {
 		HttpSession session = request.getSession(true);
 		Integer userID = (Integer) session.getAttribute("userID");
 		Partner partner = projectService.getProjectUserType(userID, projectID);
-		if (partner == null || partner.getUserType() < 0 || partner.getUserType() > 2)
-		{
+		if (partner == null || partner.getUserType() < 0 || partner.getUserType() > 2) {
 			map.put("statusCode", "100002");
+			return map;
 		}
-		else
-		{
-			boolean result = testHistoryService.deleteAllTestHistory(projectID, userID, apiID);
-			if (result)
-			{
-				map.put("statusCode", "000000");
-			}
-			else
-			{
-				map.put("statusCode", "210000");
-			}
-		}
+        boolean result = testHistoryService.deleteAllTestHistory(projectID, userID, apiID);
+		map.put("statusCode", result ? "000000" : "210000");
 		return map;
 	}
 
@@ -938,33 +494,24 @@ public class TestController {
 	 */
 	@RequestMapping(value = "/addTestHistory", method = RequestMethod.POST)
 	public Map<String, Object> addTestHistory(HttpServletRequest request, Integer apiID, String requestInfo,
-			String resultInfo)
-	{
+			String resultInfo) {
 		Map<String, Object> map = new HashMap<String, Object>();
 		HttpSession session = request.getSession(true);
 		Integer userID = (Integer) session.getAttribute("userID");
 		Integer projectID = apiService.getProjectID(apiID);
 		Partner partner = projectService.getProjectUserType(userID, projectID);
-		if (partner == null || partner.getUserType() < 0 || partner.getUserType() > 2)
-		{
+		if (partner == null || partner.getUserType() < 0 || partner.getUserType() > 2) {
 			map.put("statusCode", "100002");
+			return map;
 		}
-		else
-		{
-			Date date = new Date();
-//			Timestamp testTime = new Timestamp(date.getTime());
-            String testTime = "";
-			Integer result = testHistoryService.addTestHistory(projectID, apiID, requestInfo, resultInfo, testTime);
-			if (result != null)
-			{
-				map.put("statusCode", "000000");
-				map.put("testID", result);
-			}
-			else
-			{
-				map.put("statusCode", "210000");
-			}
-		}
+        String testTime = DateUtil.formatAll(new Date());
+        Integer result = testHistoryService.addTestHistory(projectID, apiID, requestInfo, resultInfo, testTime);
+        if (result == null) {
+            map.put("statusCode", "210000");
+            return map;
+        }
+        map.put("testID", result);
+        map.put("statusCode", "000000");
 		return map;
 	}
 }
